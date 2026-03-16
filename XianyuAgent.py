@@ -21,7 +21,7 @@ class XianyuReplyBot:
     def _init_agents(self):
         """初始化各领域Agent"""
         self.agents = {
-            'classify':ClassifyAgent(self.client, self.classify_prompt, self._safe_filter),
+            'classify': ClassifyAgent(self.client, self.classify_prompt, self._safe_filter),
             'price': PriceAgent(self.client, self.price_prompt, self._safe_filter),
             'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter),
             'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter),
@@ -72,7 +72,7 @@ class XianyuReplyBot:
         user_assistant_msgs = [msg for msg in context if msg['role'] in ['user', 'assistant']]
         return "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_assistant_msgs])
 
-    def generate_reply(self, user_msg: str, item_desc: str, context: List[Dict]) -> str:
+    def generate_reply(self, user_msg: str, item_desc: str, context: List[Dict]) -> Dict[str, str]:
         """生成回复主流程"""
         # 记录用户消息
         # logger.debug(f'用户所发消息: {user_msg}')
@@ -93,7 +93,7 @@ class XianyuReplyBot:
             # 无需回复的情况
             logger.info(f'意图识别完成: no_reply - 无需回复')
             self.last_intent = 'no_reply'
-            return "-"  # 返回特殊标记，表示无需回复
+            return {"reply": "-", "intent": "no_reply"}  # 返回特殊标记，表示无需回复
         elif detected_intent in self.agents and detected_intent not in internal_intents:
             agent = self.agents[detected_intent]
             logger.info(f'意图识别完成: {detected_intent}')
@@ -108,12 +108,13 @@ class XianyuReplyBot:
         logger.info(f'议价次数: {bargain_count}')
 
         # 4. 生成回复
-        return agent.generate(
+        reply = agent.generate(
             user_msg=user_msg,
             item_desc=item_desc,
             context=formatted_context,
             bargain_count=bargain_count
         )
+        return {"reply": reply, "intent": self.last_intent or "default"}
     
     def _extract_bargain_count(self, context: List[Dict]) -> int:
         """
@@ -153,7 +154,7 @@ class IntentRouter:
             'tech': {  # 技术类优先判定
                 'keywords': ['参数', '规格', '型号', '连接', '对比'],
                 'patterns': [
-                    r'和.+比'             
+                    r'和.+比'
                 ]
             },
             'price': {
@@ -166,31 +167,24 @@ class IntentRouter:
     def detect(self, user_msg: str, item_desc, context) -> str:
         """三级路由策略（技术优先）"""
         text_clean = re.sub(r'[^\w\u4e00-\u9fa5]', '', user_msg)
-        
+
         # 1. 技术类关键词优先检查
         if any(kw in text_clean for kw in self.rules['tech']['keywords']):
-            # logger.debug(f"技术类关键词匹配: {[kw for kw in self.rules['tech']['keywords'] if kw in text_clean]}")
             return 'tech'
-            
+
         # 2. 技术类正则优先检查
         for pattern in self.rules['tech']['patterns']:
             if re.search(pattern, text_clean):
-                # logger.debug(f"技术类正则匹配: {pattern}")
                 return 'tech'
 
         # 3. 价格类检查
-        for intent in ['price']:
-            if any(kw in text_clean for kw in self.rules[intent]['keywords']):
-                # logger.debug(f"价格类关键词匹配: {[kw for kw in self.rules[intent]['keywords'] if kw in text_clean]}")
-                return intent
-            
-            for pattern in self.rules[intent]['patterns']:
-                if re.search(pattern, text_clean):
-                    # logger.debug(f"价格类正则匹配: {pattern}")
-                    return intent
-        
+        if any(kw in text_clean for kw in self.rules['price']['keywords']):
+            return 'price'
+        for pattern in self.rules['price']['patterns']:
+            if re.search(pattern, text_clean):
+                return 'price'
+
         # 4. 大模型兜底
-        # logger.debug("使用大模型进行意图分类")
         return self.classify_agent.generate(
             user_msg=user_msg,
             item_desc=item_desc,

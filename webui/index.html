@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Xianyu IM Console</title>
+    <link rel="stylesheet" href="/webui/styles.css?v=20260316c" />
+  </head>
+  <body>
+  <div class="topbar">
+    <div class="title">Xianyu IM Console</div>
+    <div id="statusBadges" class="badges"></div>
+  </div>
+  <div id="runtimeWarning" class="runtime-warning hidden"></div>
+
+  <div id="mainContainer" class="container">
+    <aside class="chat-list-panel">
+      <div class="panel-title">会话列表</div>
+      <div id="chatList" class="chat-list"></div>
+    </aside>
+
+    <main class="chat-main">
+      <div id="chatHeader" class="chat-header">请选择会话</div>
+      <div id="chatStateBanner" class="chat-state-banner hidden"></div>
+      <div id="replyPreviewCard" class="reply-preview-card hidden">
+        <div class="reply-preview-title">AI 预发送回复</div>
+        <div id="replyPreviewText" class="reply-preview-text"></div>
+        <div class="reply-preview-actions">
+          <span id="replyCountdownText" class="reply-countdown-text"></span>
+          <button id="confirmReplyBtn" class="hidden">确认发送</button>
+          <button id="cancelReplyBtn">取消发送</button>
+        </div>
+      </div>
+      <div id="messages" class="messages"></div>
+      <div class="send-bar">
+        <textarea id="messageInput" placeholder="输入消息并发送"></textarea>
+        <div class="send-actions">
+          <button id="sendBtn">发送</button>
+        </div>
+      </div>
+    </main>
+
+    <aside id="rightSidebar" class="right-sidebar">
+      <div class="panel-block grow">
+        <div class="panel-title">常用语</div>
+        <div id="quickReplies" class="quick-replies"></div>
+      </div>
+
+      <div class="panel-block">
+        <div class="panel-title">常用语管理</div>
+        <div class="quick-editor-actions">
+          <button id="openQuickEditorBtn">编辑常用语</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="floating-action-stack">
+    <button id="toggleAutoReplyBtn" class="floating-trigger-btn">自动回复开</button>
+    <button id="toggleQuickRepliesBtn" class="floating-trigger-btn">隐藏常用语</button>
+    <button id="openKeywordReplyRuleEditorFloatingBtn" class="floating-trigger-btn">关键词直发</button>
+    <button id="openTriggerRuleEditorFloatingBtn" class="floating-trigger-btn">触发式回复</button>
+  </div>
+
+  <div id="quickReplyModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span>编辑常用语</span>
+        <button id="closeQuickReplyModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div id="quickReplyRows" class="quick-reply-rows"></div>
+      <div class="modal-actions">
+        <button id="addQuickReplyRowBtn">新增一条</button>
+        <button id="cancelQuickReplyModalBtn">取消</button>
+        <button id="saveQuickReplyModalBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="triggerRuleModal" class="modal-overlay hidden">
+    <div class="modal-card trigger-modal-card">
+      <div class="modal-header">
+        <span>编辑触发规则</span>
+        <button id="closeTriggerRuleModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="trigger-rule-help">
+        <div>填写说明：</div>
+        <div>1) “触发关键词”支持多个词，用逗号或换行分隔，不需要写“新对话首条自动回复”这类说明文字。</div>
+        <div>2) 只在新对话第一条用户消息触发，每个会话每条规则只触发一次。</div>
+        <div>3) 消息1先发，消息2后发；上移/下移决定规则优先级。</div>
+      </div>
+      <div id="triggerRuleRows" class="trigger-rule-rows"></div>
+      <div class="modal-actions">
+        <button id="addTriggerRuleRowBtn">新增规则</button>
+        <button id="cancelTriggerRuleModalBtn">取消</button>
+        <button id="saveTriggerRuleModalBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="keywordReplyRuleModal" class="modal-overlay hidden">
+    <div class="modal-card trigger-modal-card">
+      <div class="modal-header">
+        <span>编辑关键词直发</span>
+        <button id="closeKeywordReplyRuleModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="trigger-rule-help">
+        <div>填写说明：</div>
+        <div>1) 每个会话首次识别到关键词时触发一次，支持多个关键词，用逗号或换行分隔。</div>
+        <div>2) 命中后不走 AI 生成，直接按顺序发送消息1、消息2。</div>
+        <div>3) 每条规则在同一会话内只会触发一次；上移/下移决定优先级。</div>
+      </div>
+      <div id="keywordReplyRuleRows" class="trigger-rule-rows"></div>
+      <div class="modal-actions">
+        <button id="addKeywordReplyRuleRowBtn">新增规则</button>
+        <button id="cancelKeywordReplyRuleModalBtn">取消</button>
+        <button id="saveKeywordReplyRuleModalBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/webui/app.js?v=20260316c"></script>
+  </body>
+  </html>

@@ -1,7 +1,16 @@
 # 环境变量文件（包含敏感信息）
 .env
+.env.chrome
+.env.edge
 # 提示词文件
 *_prompt.txt
+# 浏览器配置目录（含登录会话等敏感数据）
+data/chrome/
+data/chrome_profile/
+data/edge/
+data/edge_profile/
+# 聊天历史数据库
+data/chat_history.db
 # Python缓存文件
 __pycache__/
 *.py[cod]

@@ -1,8 +1,11 @@
 import sqlite3
 import os
 import json
+import shutil
 from datetime import datetime
+from pathlib import Path
 from loguru import logger
+from project_paths import get_data_file_path, get_project_root, resolve_project_path
 
 
 class ChatContextManager:
@@ -13,7 +16,7 @@ class ChatContextManager:
     支持按会话ID检索对话历史，以及议价次数统计。
     """
     
-    def __init__(self, max_history=100, db_path="data/chat_history.db"):
+    def __init__(self, max_history=100, db_path=None):
         """
         初始化聊天上下文管理器
         
@@ -22,8 +25,58 @@ class ChatContextManager:
             db_path: SQLite数据库文件路径
         """
         self.max_history = max_history
-        self.db_path = db_path
+        default_db_path = get_data_file_path("chat_history.db")
+        self.db_path = str(resolve_project_path(db_path or str(default_db_path)))
+        self._seed_from_legacy_db_if_needed()
         self._init_db()
+
+    def _count_messages(self, db_path: str) -> int:
+        if not os.path.exists(db_path):
+            return 0
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(1)
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'messages'
+                """
+            )
+            table_row = cursor.fetchone()
+            if not table_row or int(table_row[0]) <= 0:
+                return 0
+            cursor.execute("SELECT COUNT(1) FROM messages")
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+
+    def _seed_from_legacy_db_if_needed(self):
+        current_path = Path(self.db_path).resolve()
+        legacy_path = (get_project_root() / "data" / "chat_history.db").resolve()
+        if current_path == legacy_path:
+            return
+        if current_path.parent.name not in {"edge", "chrome"}:
+            return
+        if not legacy_path.exists():
+            return
+
+        current_count = self._count_messages(str(current_path))
+        legacy_count = self._count_messages(str(legacy_path))
+        if current_count > 0 or legacy_count <= 0:
+            return
+
+        current_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(legacy_path), str(current_path))
+        logger.info(f"已从旧聊天库迁移初始会话数据: {legacy_path} -> {current_path}")
         
     def _init_db(self):
         """初始化数据库表结构"""
@@ -85,6 +138,15 @@ class ChatContextManager:
             price REAL,
             description TEXT,
             last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS chat_trigger_rules (
+            chat_id TEXT NOT NULL,
+            rule_id TEXT NOT NULL,
+            triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (chat_id, rule_id)
         )
         ''')
         
@@ -307,3 +369,182 @@ class ChatContextManager:
             return 0
         finally:
             conn.close() 
+
+    def get_chat_list(self, limit=100):
+        """获取会话列表（按最后消息时间倒序）"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT m.chat_id, m.item_id, m.content, m.timestamp
+                FROM messages m
+                INNER JOIN (
+                    SELECT chat_id, MAX(timestamp) AS max_ts
+                    FROM messages
+                    WHERE chat_id IS NOT NULL AND chat_id != ''
+                    GROUP BY chat_id
+                ) t
+                ON m.chat_id = t.chat_id AND m.timestamp = t.max_ts
+                ORDER BY m.timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+            result = []
+            for chat_id, item_id, last_message, last_timestamp in rows:
+                result.append(
+                    {
+                        "chat_id": chat_id,
+                        "item_id": item_id,
+                        "last_message": last_message,
+                        "last_timestamp": last_timestamp,
+                        "bargain_count": self.get_bargain_count_by_chat(chat_id),
+                    }
+                )
+            return result
+        except Exception as e:
+            logger.error(f"获取会话列表时出错: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_messages_by_chat(self, chat_id, limit=200):
+        """获取指定会话消息（按时间升序）"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT user_id, item_id, role, content, timestamp, chat_id
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY timestamp ASC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "user_id": user_id,
+                    "item_id": item_id,
+                    "role": role,
+                    "content": content,
+                    "timestamp": timestamp,
+                    "chat_id": c_id,
+                }
+                for user_id, item_id, role, content, timestamp, c_id in rows
+            ]
+        except Exception as e:
+            logger.error(f"获取会话消息时出错: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_last_user_id_by_chat(self, chat_id):
+        """获取指定会话最新用户侧发送者ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT user_id
+                FROM messages
+                WHERE chat_id = ? AND role = 'user'
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (chat_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error(f"获取会话用户ID时出错: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_last_item_id_by_chat(self, chat_id):
+        """获取指定会话最新商品ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT item_id
+                FROM messages
+                WHERE chat_id = ? AND item_id IS NOT NULL AND item_id != ''
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (chat_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error(f"获取会话商品ID时出错: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_user_message_count_by_chat(self, chat_id):
+        """获取会话中用户消息数量"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT COUNT(1)
+                FROM messages
+                WHERE chat_id = ? AND role = 'user'
+                """,
+                (chat_id,),
+            )
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error(f"获取会话用户消息数时出错: {e}")
+            return 0
+        finally:
+            conn.close()
+
+    def has_triggered_rule(self, chat_id, rule_id):
+        """判断某会话是否已触发过指定规则"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT 1 FROM chat_trigger_rules
+                WHERE chat_id = ? AND rule_id = ?
+                LIMIT 1
+                """,
+                (chat_id, rule_id),
+            )
+            return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"查询触发规则状态时出错: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def mark_triggered_rule(self, chat_id, rule_id):
+        """标记某会话已触发规则"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO chat_trigger_rules (chat_id, rule_id, triggered_at)
+                VALUES (?, ?, ?)
+                """,
+                (chat_id, rule_id, datetime.now().isoformat()),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.error(f"标记触发规则时出错: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
