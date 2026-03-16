@@ -1,3 +1,7 @@
+## 🌟 本项目基于开源项目修改而来，以下为原项目README.MD，如需联系我请发邮件fwz233@qq.com。联系原项目相关人员参考以下的介绍
+
+# ---------------------------------------
+
 # 🚀 Xianyu AutoAgent - 智能闲鱼客服机器人系统
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![LLM Powered](https://img.shields.io/badge/LLM-powered-FF6F61)](https://platform.openai.com/)
